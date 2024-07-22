@@ -1,8 +1,7 @@
 import hashlib
 import hmac
 
-import base58
-
+from .base58 import b58decode_check, b58encode_check
 from .utils import (
     HARDENED_INDEX,
     _deriv_path_str_to_list,
@@ -263,7 +262,7 @@ class SLIP10:
             self.network,
         )
 
-        return base58.b58encode_check(extended_key).decode()
+        return b58encode_check(extended_key).decode()
 
     def get_xpub_from_path(self, path):
         """Get an encoded extended pubkey from a derivation path.
@@ -299,11 +298,11 @@ class SLIP10:
             self.network,
         )
 
-        return base58.b58encode_check(extended_key).decode()
+        return b58encode_check(extended_key).decode()
 
     def get_xpriv(self):
         """Get the base58 encoded extended private key."""
-        return base58.b58encode_check(self.get_xpriv_bytes()).decode()
+        return b58encode_check(self.get_xpriv_bytes()).decode()
 
     def get_xpriv_bytes(self):
         """Get the encoded extended private key."""
@@ -325,7 +324,7 @@ class SLIP10:
 
     def get_xpub(self):
         """Get the encoded extended public key."""
-        return base58.b58encode_check(self.get_xpub_bytes()).decode()
+        return b58encode_check(self.get_xpub_bytes()).decode()
 
     def get_xpub_bytes(self):
         """Get the encoded extended public key."""
@@ -352,7 +351,7 @@ class SLIP10:
         if not isinstance(xpriv, str):
             raise InvalidInputError("'xpriv' must be a string")
 
-        extended_key = base58.b58decode_check(xpriv)
+        extended_key = b58decode_check(xpriv)
         (
             network,
             depth,
@@ -380,7 +379,7 @@ class SLIP10:
         if not isinstance(xpub, str):
             raise InvalidInputError("'xpub' must be a string")
 
-        extended_key = base58.b58decode_check(xpub)
+        extended_key = b58decode_check(xpub)
         (
             network,
             depth,

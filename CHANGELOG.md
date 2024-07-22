@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Changed
+
+- Drop base58 dependency. Port base58 code directly in-tree as a `base58` module.
+
 ## 1.0.1
 
 - Support Python 3.8

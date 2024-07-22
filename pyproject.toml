@@ -15,7 +15,6 @@ keywords = ["bitcoin", "slip10", "hdwallet"]
 [tool.poetry.dependencies]
 cryptography = "*"
 ecdsa = "*"
-base58 = "^2"
 python = ">=3.8,<4.0"
 
 [tool.poetry.group.dev.dependencies]
