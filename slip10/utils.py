@@ -1,8 +1,8 @@
 import hashlib
 import hmac
 import re
+from typing import Optional, Tuple
 
-import ecdsa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
@@ -30,11 +30,29 @@ class SLIP10DerivationError(Exception):
     pass
 
 
+Point = Optional[Tuple[int, int]]
+
+
 class WeierstrassCurve:
-    def __init__(self, name, modifier, curve):
+    def __init__(
+        self,
+        name: str,
+        modifier: bytes,
+        *,
+        p: int,
+        a: int,
+        b: int,
+        generator: Tuple[int, int],
+        order: int,
+    ):
         self.name = name
         self.modifier = modifier
-        self.curve = curve
+        self.p = p
+        self.a = a
+        self.b = b
+        self.generator = generator
+        self.order = order
+        self.coordinate_size = (p.bit_length() + 7) // 8
 
     def generate_master(self, seed):
         """Master key generation in SLIP-0010
@@ -59,7 +77,6 @@ class WeierstrassCurve:
         :return: (child_privatekey, child_chaincode)
         """
         assert isinstance(privkey, bytes) and isinstance(chaincode, bytes)
-        # payload is the I from the SLIP. Index is 32 bits unsigned int, BE.
         if index & HARDENED_INDEX != 0:
             payload = hmac.new(
                 chaincode, b"\x00" + privkey + index.to_bytes(4, "big"), hashlib.sha512
@@ -72,8 +89,8 @@ class WeierstrassCurve:
 
         while True:
             tweak = int.from_bytes(payload[:32], "big")
-            child_private = (tweak + int.from_bytes(privkey, "big")) % self.curve.order
-            if tweak <= self.curve.order and child_private != 0:
+            child_private = (tweak + int.from_bytes(privkey, "big")) % self.order
+            if tweak <= self.order and child_private != 0:
                 break
             payload = hmac.new(
                 chaincode,
@@ -92,43 +109,136 @@ class WeierstrassCurve:
 
         :return: (child_pubkey, child_chaincode)
         """
-        from ecdsa.ellipticcurve import INFINITY
-
         assert isinstance(pubkey, bytes) and isinstance(chaincode, bytes)
         if index & HARDENED_INDEX != 0:
             raise SLIP10DerivationError("Hardened derivation is not possible.")
 
-        # payload is the I from the SLIP. Index is 32 bits unsigned int, BE.
         payload = hmac.new(
             chaincode, pubkey + index.to_bytes(4, "big"), hashlib.sha512
         ).digest()
+        base_point = self._bytes_to_point(pubkey)
         while True:
             tweak = int.from_bytes(payload[:32], "big")
-            point = ecdsa.VerifyingKey.from_string(pubkey, self.curve).pubkey.point
-            point += self.curve.generator * tweak
-            if tweak <= self.curve.order and point != INFINITY:
+            tweak_point = self._scalar_mult(tweak, self.generator)
+            child_point = self._point_add(base_point, tweak_point)
+            if tweak <= self.order and child_point is not None:
                 break
             payload = hmac.new(
                 chaincode,
                 b"\x01" + payload[32:] + index.to_bytes(4, "big"),
                 hashlib.sha512,
             ).digest()
-        return point.to_bytes("compressed"), payload[32:]
+        return self._point_to_bytes(child_point), payload[32:]
 
     def privkey_is_valid(self, privkey):
         key = int.from_bytes(privkey, "big")
-        return 0 < key < self.curve.order
+        return 0 < key < self.order
 
     def pubkey_is_valid(self, pubkey):
         try:
-            ecdsa.VerifyingKey.from_string(pubkey, self.curve)
-            return True
-        except ecdsa.errors.MalformedPointError:
+            point = self._bytes_to_point(pubkey)
+        except ValueError:
             return False
+        return point is not None and self._is_on_curve(point)
 
     def privkey_to_pubkey(self, privkey):
-        sk = ecdsa.SigningKey.from_string(privkey, self.curve)
-        return sk.get_verifying_key().to_string("compressed")
+        if not self.privkey_is_valid(privkey):
+            raise ValueError("Invalid private key")
+        scalar = int.from_bytes(privkey, "big")
+        point = self._scalar_mult(scalar, self.generator)
+        if point is None:
+            raise ValueError("Point at infinity")
+        return self._point_to_bytes(point)
+
+    def _is_on_curve(self, point: Point) -> bool:
+        if point is None:
+            return True
+        x, y = point
+        return (y * y - (x * x * x + self.a * x + self.b)) % self.p == 0
+
+    def _point_add(self, p1: Point, p2: Point) -> Point:
+        if p1 is None:
+            return p2
+        if p2 is None:
+            return p1
+        if p1 == p2:
+            return self._point_double(p1)
+
+        x1, y1 = p1
+        x2, y2 = p2
+        if x1 == x2:
+            return None
+
+        slope = ((y2 - y1) * self._inverse_mod((x2 - x1) % self.p)) % self.p
+        x3 = (slope * slope - x1 - x2) % self.p
+        y3 = (slope * (x1 - x3) - y1) % self.p
+        return x3, y3
+
+    def _point_double(self, point: Point) -> Point:
+        if point is None:
+            return None
+        x, y = point
+        if y == 0:
+            return None
+
+        slope = ((3 * x * x + self.a) * self._inverse_mod((2 * y) % self.p)) % self.p
+        x3 = (slope * slope - 2 * x) % self.p
+        y3 = (slope * (x - x3) - y) % self.p
+        return x3, y3
+
+    def _scalar_mult(self, scalar: int, point: Tuple[int, int]) -> Point:
+        scalar %= self.order
+        if scalar == 0 or point is None:
+            return None
+
+        result: Point = None
+        addend: Point = point
+        while scalar:
+            if scalar & 1:
+                result = self._point_add(result, addend)
+            addend = self._point_double(addend)
+            scalar >>= 1
+        return result
+
+    def _bytes_to_point(self, data: bytes) -> Point:
+        if len(data) == self.coordinate_size * 2 + 1 and data[0] == 4:
+            x = int.from_bytes(data[1 : 1 + self.coordinate_size], "big")
+            y = int.from_bytes(data[1 + self.coordinate_size :], "big")
+            point = (x, y)
+            if not self._is_on_curve(point):
+                raise ValueError("Point is not on curve")
+            return point
+
+        if len(data) != self.coordinate_size + 1 or data[0] not in (2, 3):
+            raise ValueError("Invalid public key encoding")
+
+        x = int.from_bytes(data[1:], "big")
+        y = self._recover_y(x, data[0] == 3)
+        point = (x, y)
+        if not self._is_on_curve(point):
+            raise ValueError("Point is not on curve")
+        return point
+
+    def _point_to_bytes(self, point: Tuple[int, int]) -> bytes:
+        x, y = point
+        prefix = 0x03 if y & 1 else 0x02
+        return bytes([prefix]) + x.to_bytes(self.coordinate_size, "big")
+
+    def _recover_y(self, x: int, is_odd: bool) -> int:
+        if x >= self.p:
+            raise ValueError("Invalid point")
+        rhs = (pow(x, 3, self.p) + self.a * x + self.b) % self.p
+        y = pow(rhs, (self.p + 1) // 4, self.p)
+        if (y * y) % self.p != rhs:
+            raise ValueError("Invalid point")
+        if bool(y & 1) != is_odd:
+            y = (-y) % self.p
+        if bool(y & 1) != is_odd:
+            raise ValueError("Invalid point")
+        return y
+
+    def _inverse_mod(self, value: int) -> int:
+        return pow(value % self.p, -1, self.p)
 
 
 class EdwardsCurve:
@@ -197,8 +307,30 @@ class EdwardsCurve:
         return b"\x00" + sk.public_key().public_bytes(key_encoding, key_format)
 
 
-SECP256K1 = WeierstrassCurve("secp256k1", b"Bitcoin seed", ecdsa.SECP256k1)
-SECP256R1 = WeierstrassCurve("secp256r1", b"Nist256p1 seed", ecdsa.NIST256p)
+SECP256K1 = WeierstrassCurve(
+    "secp256k1",
+    b"Bitcoin seed",
+    p=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F,
+    a=0,
+    b=7,
+    generator=(
+        0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798,
+        0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8,
+    ),
+    order=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141,
+)
+SECP256R1 = WeierstrassCurve(
+    "secp256r1",
+    b"Nist256p1 seed",
+    p=0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF,
+    a=0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC,
+    b=0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B,
+    generator=(
+        0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296,
+        0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5,
+    ),
+    order=0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551,
+)
 ED25519 = EdwardsCurve("ed25519", b"ed25519 seed", Ed25519PrivateKey, Ed25519PublicKey)
 X25519 = EdwardsCurve(
     "curve25519", b"curve25519 seed", X25519PrivateKey, X25519PublicKey

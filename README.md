@@ -36,7 +36,7 @@ pip install slip10
 
 ### Dependencies
 
-This package uses [`ecdsa`](https://pypi.org/project/ecdsa/) as a wrapper for secp256k1 and secp256r1 elliptic curve operations and [`cryptography`](https://pypi.org/project/cryptography/) for Ed25519 and curve25519 operations.
+This package relies on [`cryptography`](https://pypi.org/project/cryptography/) and built-in field arithmetic for elliptic curve operations across all supported curves.
 
 ### Running the test suite
 
