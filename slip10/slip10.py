@@ -342,6 +342,10 @@ class SLIP10:
             self.network,
         )
 
+    def get_fingerprint(self):
+        """Get the public key fingerprint."""
+        return _pubkey_to_fingerprint(self.pubkey)
+
     @classmethod
     def from_xpriv(cls, xpriv):
         """Get a SLIP10 "wallet" out of this xpriv

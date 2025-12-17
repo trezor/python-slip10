@@ -126,7 +126,7 @@ Equivalent to `get_xpriv_from_path([])`.
 
 #### get_xpriv_bytes()
 
-Equivalent to `get_xpriv([])`, but not serialized in base58
+Equivalent to `get_xpriv([])`, but not serialized in base58.
 
 #### get_xpub()
 
@@ -134,4 +134,8 @@ Equivalent to `get_xpub_from_path([])`.
 
 #### get_xpub_bytes()
 
-Equivalent to `get_xpub([])`, but not serialized in base58
+Equivalent to `get_xpub([])`, but not serialized in base58.
+
+#### get_fingerprint()
+
+Returns `fingerprint (bytes)`, equivalent to `utils._pubkey_to_fingerprint(self.pubkey)`.

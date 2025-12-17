@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- A new method `get_fingerprint()` was added.
+
 ### Changed
 
 - Drop base58 dependency. Port base58 code directly in-tree as a `base58` module.
