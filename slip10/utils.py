@@ -2,7 +2,8 @@ import hashlib
 import hmac
 import re
 
-import ecdsa
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
@@ -31,10 +32,14 @@ class SLIP10DerivationError(Exception):
 
 
 class WeierstrassCurve:
-    def __init__(self, name, modifier, curve):
+    def __init__(self, name, modifier, curve, a, modulus, order):
         self.name = name
         self.modifier = modifier
         self.curve = curve
+        self.a = a
+        self.modulus = modulus
+        self.order = order
+        self.point_at_infinity = bytes(1)
 
     def generate_master(self, seed):
         """Master key generation in SLIP-0010
@@ -72,8 +77,8 @@ class WeierstrassCurve:
 
         while True:
             tweak = int.from_bytes(payload[:32], "big")
-            child_private = (tweak + int.from_bytes(privkey, "big")) % self.curve.order
-            if tweak < self.curve.order and child_private != 0:
+            child_private = (tweak + int.from_bytes(privkey, "big")) % self.order
+            if tweak < self.order and child_private != 0:
                 break
             payload = hmac.new(
                 chaincode,
@@ -92,8 +97,6 @@ class WeierstrassCurve:
 
         :return: (child_pubkey, child_chaincode)
         """
-        from ecdsa.ellipticcurve import INFINITY
-
         assert isinstance(pubkey, bytes) and isinstance(chaincode, bytes)
         if index & HARDENED_INDEX != 0:
             raise SLIP10DerivationError("Hardened derivation is not possible.")
@@ -104,31 +107,76 @@ class WeierstrassCurve:
         ).digest()
         while True:
             tweak = int.from_bytes(payload[:32], "big")
-            point = ecdsa.VerifyingKey.from_string(pubkey, self.curve).pubkey.point
-            point += self.curve.generator * tweak
-            if tweak < self.curve.order and point != INFINITY:
+            point = self.add_points(pubkey, self.multiply_generator(tweak))
+            if tweak < self.order and point != self.point_at_infinity:
                 break
             payload = hmac.new(
                 chaincode,
                 b"\x01" + payload[32:] + index.to_bytes(4, "big"),
                 hashlib.sha512,
             ).digest()
-        return point.to_bytes("compressed"), payload[32:]
+        return point, payload[32:]
 
     def privkey_is_valid(self, privkey):
         key = int.from_bytes(privkey, "big")
-        return 0 < key < self.curve.order
+        return 0 < key < self.order
+
+    def add_points(self, first: bytes, second: bytes) -> bytes:
+        if first == self.point_at_infinity:
+            return second
+
+        if second == self.point_at_infinity:
+            return first
+
+        p1 = ec.EllipticCurvePublicKey.from_encoded_point(self.curve, first)
+        p2 = ec.EllipticCurvePublicKey.from_encoded_point(self.curve, second)
+
+        x1 = p1.public_numbers().x
+        y1 = p1.public_numbers().y
+        x2 = p2.public_numbers().x
+        y2 = p2.public_numbers().y
+
+        if x1 == x2 and y1 == -y2 % self.modulus:
+            return self.point_at_infinity
+
+        if x1 == x2 and y1 == y2:
+            # doubling
+            slope = (
+                (3 * x1 * x1 + self.a) * pow(2 * y1, -1, self.modulus) % self.modulus
+            )
+        else:
+            slope = (y2 - y1) * pow(x2 - x1, -1, self.modulus) % self.modulus
+
+        x3 = (slope * slope - x1 - x2) % self.modulus
+        y3 = (slope * (x1 - x3) - y1) % self.modulus
+
+        return bytes([0x02 if y3 % 2 == 0 else 0x03]) + x3.to_bytes(32, "big")
+
+    def multiply_generator(self, scalar: int) -> bytes:
+        scalar %= self.order
+
+        if scalar == 0:
+            return self.point_at_infinity
+
+        sk = ec.derive_private_key(scalar, self.curve)
+        return sk.public_key().public_bytes(
+            encoding=serialization.Encoding.X962,
+            format=serialization.PublicFormat.CompressedPoint,
+        )
 
     def pubkey_is_valid(self, pubkey):
         try:
-            ecdsa.VerifyingKey.from_string(pubkey, self.curve)
+            ec.EllipticCurvePublicKey.from_encoded_point(self.curve, pubkey)
             return True
-        except ecdsa.errors.MalformedPointError:
+        except ValueError:
             return False
 
-    def privkey_to_pubkey(self, privkey):
-        sk = ecdsa.SigningKey.from_string(privkey, self.curve)
-        return sk.get_verifying_key().to_string("compressed")
+    def privkey_to_pubkey(self, privkey: bytes) -> bytes:
+        sk = ec.derive_private_key(int.from_bytes(privkey, "big"), self.curve)
+        return sk.public_key().public_bytes(
+            encoding=serialization.Encoding.X962,
+            format=serialization.PublicFormat.CompressedPoint,
+        )
 
 
 class EdwardsCurve:
@@ -189,16 +237,28 @@ class EdwardsCurve:
         return True
 
     def privkey_to_pubkey(self, privkey):
-        from cryptography.hazmat.primitives import serialization
-
         sk = self.private_key_class.from_private_bytes(privkey)
         key_encoding = serialization.Encoding.Raw
         key_format = serialization.PublicFormat.Raw
         return b"\x00" + sk.public_key().public_bytes(key_encoding, key_format)
 
 
-SECP256K1 = WeierstrassCurve("secp256k1", b"Bitcoin seed", ecdsa.SECP256k1)
-SECP256R1 = WeierstrassCurve("secp256r1", b"Nist256p1 seed", ecdsa.NIST256p)
+SECP256K1 = WeierstrassCurve(
+    "secp256k1",
+    b"Bitcoin seed",
+    ec.SECP256K1(),
+    0,
+    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F,
+    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141,
+)
+SECP256R1 = WeierstrassCurve(
+    "secp256r1",
+    b"Nist256p1 seed",
+    ec.SECP256R1(),
+    0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC,
+    0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF,
+    0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551,
+)
 ED25519 = EdwardsCurve("ed25519", b"ed25519 seed", Ed25519PrivateKey, Ed25519PublicKey)
 X25519 = EdwardsCurve(
     "curve25519", b"curve25519 seed", X25519PrivateKey, X25519PublicKey

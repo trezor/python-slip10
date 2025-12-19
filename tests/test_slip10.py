@@ -1,9 +1,9 @@
 import os
 
-import ecdsa
 import pytest
 
 from slip10 import HARDENED_INDEX, SLIP10, InvalidInputError, PrivateDerivationError
+from slip10.utils import SECP256K1
 
 SEED_1 = "000102030405060708090a0b0c0d0e0f"
 SEED_2 = "fffcf9f6f3f0edeae7e4e1dedbd8d5d2cfccc9c6c3c0bdbab7b4b1aeaba8a5a29f9c999693908d8a8784817e7b7875726f6c696663605d5a5754514e4b484542"
@@ -440,10 +440,9 @@ def test_sanity_checks():
         == slip10.get_xpriv_from_path([])
     )
     non_extended_pubkey = slip10.get_privkey_from_path("m")
-    pubkey = ecdsa.SigningKey.from_string(
-        non_extended_pubkey, ecdsa.SECP256k1
-    ).get_verifying_key()
-    assert pubkey.to_string("compressed") == slip10.get_pubkey_from_path("m")
+    assert SECP256K1.privkey_to_pubkey(
+        non_extended_pubkey
+    ) == slip10.get_pubkey_from_path("m")
     # But getting from "m'" does not make sense
     with pytest.raises(ValueError, match="invalid format"):
         slip10.get_pubkey_from_path("m'")
