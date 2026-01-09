@@ -73,7 +73,7 @@ class WeierstrassCurve:
         while True:
             tweak = int.from_bytes(payload[:32], "big")
             child_private = (tweak + int.from_bytes(privkey, "big")) % self.curve.order
-            if tweak <= self.curve.order and child_private != 0:
+            if tweak < self.curve.order and child_private != 0:
                 break
             payload = hmac.new(
                 chaincode,
@@ -106,7 +106,7 @@ class WeierstrassCurve:
             tweak = int.from_bytes(payload[:32], "big")
             point = ecdsa.VerifyingKey.from_string(pubkey, self.curve).pubkey.point
             point += self.curve.generator * tweak
-            if tweak <= self.curve.order and point != INFINITY:
+            if tweak < self.curve.order and point != INFINITY:
                 break
             payload = hmac.new(
                 chaincode,
