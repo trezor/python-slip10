@@ -913,3 +913,22 @@ def test_slip10_vectors():
             assert node.chaincode.hex() == chaincode
             assert node.privkey.hex() == privkey
             assert node.pubkey.hex() == pubkey
+
+
+def test_secp256r1_derivation_retry():
+    # Test retry in public key to public key derivation
+    # https://github.com/satoshilabs/slips/blob/master/slip-0010.md#test-derivation-retry-for-nist256p1
+    chaincode, pubkey = SLIP10.from_seed(
+        bytes.fromhex(SEED_1), curve_name="secp256r1"
+    ).get_extended_pubkey_from_path("m/28578'")
+    chaincode, pubkey = SLIP10(
+        chaincode, pubkey=pubkey, curve_name="secp256r1"
+    ).get_extended_pubkey_from_path("m/33941")
+    assert (
+        chaincode.hex()
+        == "9e87fe95031f14736774cd82f25fd885065cb7c358c1edf813c72af535e83071"
+    )
+    assert (
+        pubkey.hex()
+        == "0235bfee614c0d5b2cae260000bb1d0d84b270099ad790022c1ae0b2e782efe120"
+    )
