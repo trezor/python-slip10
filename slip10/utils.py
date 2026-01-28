@@ -39,6 +39,7 @@ class WeierstrassCurve:
         self.a = a
         self.modulus = modulus
         self.order = order
+        self.point_at_infinity = bytes(1)
 
     def generate_master(self, seed):
         """Master key generation in SLIP-0010
@@ -106,8 +107,8 @@ class WeierstrassCurve:
         ).digest()
         while True:
             tweak = int.from_bytes(payload[:32], "big")
-            point = self.add_points(pubkey, self.privkey_to_pubkey(payload[:32]))
-            if tweak < self.order and point != bytes(1):
+            point = self.add_points(pubkey, self.multiply_generator(tweak))
+            if tweak < self.order and point != self.point_at_infinity:
                 break
             payload = hmac.new(
                 chaincode,
@@ -121,6 +122,12 @@ class WeierstrassCurve:
         return 0 < key < self.order
 
     def add_points(self, first: bytes, second: bytes) -> bytes:
+        if first == self.point_at_infinity:
+            return second
+
+        if second == self.point_at_infinity:
+            return first
+
         p1 = ec.EllipticCurvePublicKey.from_encoded_point(self.curve, first)
         p2 = ec.EllipticCurvePublicKey.from_encoded_point(self.curve, second)
 
@@ -130,7 +137,7 @@ class WeierstrassCurve:
         y2 = p2.public_numbers().y
 
         if x1 == x2 and y1 == -y2 % self.modulus:
-            return bytes(1)  # the point at infinity
+            return self.point_at_infinity
 
         if x1 == x2 and y1 == y2:
             # doubling
@@ -145,6 +152,18 @@ class WeierstrassCurve:
 
         return bytes([0x02 if y3 % 2 == 0 else 0x03]) + x3.to_bytes(32, "big")
 
+    def multiply_generator(self, scalar: int) -> bytes:
+        scalar %= self.order
+
+        if scalar == 0:
+            return self.point_at_infinity
+
+        sk = ec.derive_private_key(scalar, self.curve)
+        return sk.public_key().public_bytes(
+            encoding=serialization.Encoding.X962,
+            format=serialization.PublicFormat.CompressedPoint,
+        )
+
     def pubkey_is_valid(self, pubkey):
         try:
             ec.EllipticCurvePublicKey.from_encoded_point(self.curve, pubkey)
@@ -152,7 +171,7 @@ class WeierstrassCurve:
         except ValueError:
             return False
 
-    def privkey_to_pubkey(self, privkey):
+    def privkey_to_pubkey(self, privkey: bytes) -> bytes:
         sk = ec.derive_private_key(int.from_bytes(privkey, "big"), self.curve)
         return sk.public_key().public_bytes(
             encoding=serialization.Encoding.X962,
