@@ -1,18 +1,28 @@
-[tool.poetry]
+[project]
 name = "slip10"
-version = "1.0.1"
+version = "1.1.0"
 description = "A reference implementation of the SLIP-0010 specification, which generalizes the BIP-0032 derivation scheme for private and public key pairs in hierarchical deterministic wallets for the curves secp256k1, NIST P-256, ed25519 and curve25519."
-authors = ["Antoine Poinsot <darosior@protonmail.com>", "Andrew R. Kozlik <andrew.kozlik@satoshilabs.com>"]
-maintainers = ["Andrew R. Kozlik <andrew.kozlik@satoshilabs.com>"]
-
 # slip10/ripemd160.py is MIT
 license = "BSD-3-Clause AND MIT"
+license-files = [ "LICENCE" ]
+dynamic = [ "readme" ]
+authors = [
+    { name = "Antoine Poinsot", email = "darosior@protonmail.com" },
+    { name = "Andrew R. Kozlik", email = "andrew.kozlik@satoshilabs.com" },
+]
+maintainers = [
+    { name = "Andrew R. Kozlik", email = "andrew.kozlik@satoshilabs.com" },
+]
+keywords = [ "bitcoin", "slip10", "hdwallet" ]
+
+[project.urls]
+repository = "https://github.com/trezor/python-slip10"
+
+[tool.poetry]
 readme = [
     "README.md",
     "CHANGELOG.md",
 ]
-repository = "https://github.com/trezor/python-slip10"
-keywords = ["bitcoin", "slip10", "hdwallet"]
 
 [tool.poetry.dependencies]
 cryptography = "*"
@@ -26,10 +36,6 @@ isort = "^5"
 # See https://github.com/pytest-dev/pytest/issues/12177#issue-2220516002
 exceptiongroup = { version = "*", markers = "python_version == '3.10'" }
 tomli = { version = "*", markers = "python_version == '3.10'" }
-
-[project]
-license = "BSD-3-Clause AND MIT"
-license-files = ["LICENCE"]
 
 [build-system]
 requires = ["poetry-core"]
