@@ -36,16 +36,23 @@ pip install slip10
 
 ### Dependencies
 
-This package uses [`ecdsa`](https://pypi.org/project/ecdsa/) as a wrapper for secp256k1 and secp256r1 elliptic curve operations and [`cryptography`](https://pypi.org/project/cryptography/) for Ed25519 and curve25519 operations.
+This package uses [`cryptography`](https://pypi.org/project/cryptography/) for Ed25519 and curve25519 operations.
 
 ### Running the test suite
 
+#### Install uv, clone and enter python-slip10 repository
+
 ```
-pip3 install poetry
+curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/trezor/python-slip10
 cd python-slip10
-poetry install
-poetry run make test
+```
+
+#### Run tests
+
+```
+make install
+make test
 ```
 
 ## Interface
