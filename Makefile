@@ -32,5 +32,7 @@ style:
 	isort slip10/ tests/
 	black slip10/ tests/
 
+uvlock_check: ## check that uv.lock is up to date
+	uv lock --check
 
-.PHONY: clean clean-build clean-pyc clean-test test style_check style
+.PHONY: clean clean-build clean-pyc clean-test test style_check style uvlock_check

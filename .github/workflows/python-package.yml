@@ -4,20 +4,45 @@ on: [push, pull_request]
 
 jobs:
   test:
+    name: Run Python tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # actions/checkout@v6.0.2
       - uses: ./.github/actions/environment
       - name: Run tests for Python-${{ matrix.python-version }}
         run: nix-shell --run "uv run --python ${{ matrix.python-version }} pytest"
+
   linter:
+    name: Style check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # actions/checkout@v6.0.2
       - uses: ./.github/actions/environment
       - name: Run style check
         run: nix-shell --run "uv run make style_check"
+
+  block-fixup:
+    name: Block fixup
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # actions/checkout@v6.0.2
+      - name: Block Fixup Commit Merge
+        uses: 13rac1/block-fixup-merge-action@bd5504fb9ca0253e109d98eb86b7debc01970cdc  # 13rac1/block-fixup-merge-action@v2.0.0
+
+  # Check uv.lock is up-to-date
+  uvlock_check:
+    name: uv.lock check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # actions/checkout@v6.0.2
+      - name: Install nix
+        uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd  # cachix/install-nix-action@v31.9.1
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - name: "Run uv.lock check"
+        run: nix-shell --run "make uvlock_check"
